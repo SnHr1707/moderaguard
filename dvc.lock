@@ -1,0 +1,390 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: python -m moderaguard.data.prepare
+    deps:
+    - path: data/raw
+      hash: md5
+      md5: 6ffbaaad7b4ac6e1afabed19a80b2560.dir
+      size: 0
+      nfiles: 1
+    - path: data/sample
+      hash: md5
+      md5: 963050016bd44315ac7a81e41795184c.dir
+      size: 1155798
+      nfiles: 2
+    - path: src/moderaguard/data/prepare.py
+      hash: md5
+      md5: be695e33c23db053b08700380ad936c1
+      size: 5854
+    params:
+      params.yaml:
+        data:
+          jigsaw_path: data/raw/jigsaw/all_data.csv
+          spam_dir: data/raw/youtube_spam
+          max_rows: 200000
+          toxicity_threshold: 0.5
+          drift_split_date: '2017-06-01'
+          test_size: 0.2
+          seed: 42
+          spam_extra_ham_from_toxicity: 1000
+    outs:
+    - path: data/processed/spam_test.parquet
+      hash: md5
+      md5: 5b1b61b91b7d3bdefe55179b73ec8299
+      size: 8273
+    - path: data/processed/spam_train.parquet
+      hash: md5
+      md5: 8cfea79b9a391877caff65f5b06bc547
+      size: 20718
+    - path: data/processed/toxicity_stream.parquet
+      hash: md5
+      md5: 0f84f157bc4e7f9fb871dece07aa1549
+      size: 35266
+    - path: data/processed/toxicity_test.parquet
+      hash: md5
+      md5: 58ed27a5b652c97951bee0b7b106f944
+      size: 32185
+    - path: data/processed/toxicity_train.parquet
+      hash: md5
+      md5: de2a8a1d9fbe026951d7f992762b6c88
+      size: 96254
+    - path: reports/data_summary.json
+      hash: md5
+      md5: 74541824febe272c6dd759558068a736
+      size: 302
+  validate:
+    cmd: python -m moderaguard.data.validate
+    deps:
+    - path: data/processed
+      hash: md5
+      md5: a60787a92ad842d4eaa4029b7afa5aa1.dir
+      size: 192696
+      nfiles: 5
+    - path: src/moderaguard/data/validate.py
+      hash: md5
+      md5: 579024843c0cad060dcf8762496c2f8a
+      size: 3118
+    outs:
+    - path: reports/validation.json
+      hash: md5
+      md5: c3dad3b7fd8b3d14f7f3c2388f0ab739
+      size: 263
+  train_toxicity@champion:
+    cmd: python -m moderaguard.models.train --task toxicity --variant champion
+    deps:
+    - path: data/processed/toxicity_test.parquet
+      hash: md5
+      md5: 58ed27a5b652c97951bee0b7b106f944
+      size: 32185
+    - path: data/processed/toxicity_train.parquet
+      hash: md5
+      md5: de2a8a1d9fbe026951d7f992762b6c88
+      size: 96254
+    - path: reports/validation.json
+      hash: md5
+      md5: c3dad3b7fd8b3d14f7f3c2388f0ab739
+      size: 263
+    - path: src/moderaguard/features
+      hash: md5
+      md5: 9524da5f949c64345e393c79848bed87.dir
+      size: 8278
+      nfiles: 6
+    - path: src/moderaguard/models
+      hash: md5
+      md5: 0a8ea8cd85edc7d17ed6e168ed827bf1.dir
+      size: 101397
+      nfiles: 26
+    params:
+      params.yaml:
+        features:
+          word_max_features: 50000
+          word_ngram_max: 2
+          char_max_features: 50000
+          char_ngram_min: 3
+          char_ngram_max: 5
+          min_df: 2
+        toxicity:
+          mitigation:
+            mask_identity_terms: true
+            neutral_identity_weight: 3.0
+            counterfactual_copies: 0
+          champion:
+            algorithm: logreg
+            C: 4.0
+            class_weight: balanced
+          challenger:
+            algorithm: linear_svm
+            C: 0.5
+            class_weight: balanced
+    outs:
+    - path: models/toxicity/champion
+      hash: md5
+      md5: ff18322ab5b3c75834ee006271f7002d.dir
+      size: 225731
+      nfiles: 7
+    - path: reports/metrics_toxicity_champion.json
+      hash: md5
+      md5: 0344d275e9d1760ae9d2719125ea130e
+      size: 136
+  train_toxicity@challenger:
+    cmd: python -m moderaguard.models.train --task toxicity --variant challenger
+    deps:
+    - path: data/processed/toxicity_test.parquet
+      hash: md5
+      md5: 58ed27a5b652c97951bee0b7b106f944
+      size: 32185
+    - path: data/processed/toxicity_train.parquet
+      hash: md5
+      md5: de2a8a1d9fbe026951d7f992762b6c88
+      size: 96254
+    - path: reports/validation.json
+      hash: md5
+      md5: c3dad3b7fd8b3d14f7f3c2388f0ab739
+      size: 263
+    - path: src/moderaguard/features
+      hash: md5
+      md5: 9524da5f949c64345e393c79848bed87.dir
+      size: 8278
+      nfiles: 6
+    - path: src/moderaguard/models
+      hash: md5
+      md5: 0a8ea8cd85edc7d17ed6e168ed827bf1.dir
+      size: 101397
+      nfiles: 26
+    params:
+      params.yaml:
+        features:
+          word_max_features: 50000
+          word_ngram_max: 2
+          char_max_features: 50000
+          char_ngram_min: 3
+          char_ngram_max: 5
+          min_df: 2
+        toxicity:
+          mitigation:
+            mask_identity_terms: true
+            neutral_identity_weight: 3.0
+            counterfactual_copies: 0
+          champion:
+            algorithm: logreg
+            C: 4.0
+            class_weight: balanced
+          challenger:
+            algorithm: linear_svm
+            C: 0.5
+            class_weight: balanced
+    outs:
+    - path: models/toxicity/challenger
+      hash: md5
+      md5: cec355f361d05f2b677490519f1e553d.dir
+      size: 249216
+      nfiles: 7
+    - path: reports/metrics_toxicity_challenger.json
+      hash: md5
+      md5: 0344d275e9d1760ae9d2719125ea130e
+      size: 136
+  train_toxicity_unmitigated:
+    cmd: python -m moderaguard.models.train --task toxicity --variant champion 
+      --no-mitigation
+    deps:
+    - path: data/processed/toxicity_train.parquet
+      hash: md5
+      md5: de2a8a1d9fbe026951d7f992762b6c88
+      size: 96254
+    - path: reports/validation.json
+      hash: md5
+      md5: c3dad3b7fd8b3d14f7f3c2388f0ab739
+      size: 263
+    - path: src/moderaguard/models
+      hash: md5
+      md5: 0a8ea8cd85edc7d17ed6e168ed827bf1.dir
+      size: 101397
+      nfiles: 26
+    params:
+      params.yaml:
+        features:
+          word_max_features: 50000
+          word_ngram_max: 2
+          char_max_features: 50000
+          char_ngram_min: 3
+          char_ngram_max: 5
+          min_df: 2
+        toxicity:
+          mitigation:
+            mask_identity_terms: true
+            neutral_identity_weight: 3.0
+            counterfactual_copies: 0
+          champion:
+            algorithm: logreg
+            C: 4.0
+            class_weight: balanced
+          challenger:
+            algorithm: linear_svm
+            C: 0.5
+            class_weight: balanced
+    outs:
+    - path: models/toxicity/champion_unmitigated
+      hash: md5
+      md5: dc37f1f5852b69a12d922f7c0781bf4e.dir
+      size: 235398
+      nfiles: 7
+    - path: reports/metrics_toxicity_champion_unmitigated.json
+      hash: md5
+      md5: a0d3bc86c40c3a8c7c5df22ea22243d0
+      size: 138
+  train_spam:
+    cmd: python -m moderaguard.models.train --task spam
+    deps:
+    - path: data/processed/spam_test.parquet
+      hash: md5
+      md5: 5b1b61b91b7d3bdefe55179b73ec8299
+      size: 8273
+    - path: data/processed/spam_train.parquet
+      hash: md5
+      md5: 8cfea79b9a391877caff65f5b06bc547
+      size: 20718
+    - path: reports/validation.json
+      hash: md5
+      md5: c3dad3b7fd8b3d14f7f3c2388f0ab739
+      size: 263
+    - path: src/moderaguard/features
+      hash: md5
+      md5: 9524da5f949c64345e393c79848bed87.dir
+      size: 8278
+      nfiles: 6
+    - path: src/moderaguard/models
+      hash: md5
+      md5: 0a8ea8cd85edc7d17ed6e168ed827bf1.dir
+      size: 101397
+      nfiles: 26
+    params:
+      params.yaml:
+        features:
+          word_max_features: 50000
+          word_ngram_max: 2
+          char_max_features: 50000
+          char_ngram_min: 3
+          char_ngram_max: 5
+          min_df: 2
+        spam:
+          algorithm: logreg
+          C: 2.0
+          class_weight: balanced
+    outs:
+    - path: models/spam/champion
+      hash: md5
+      md5: a0d71759e397b6613aff0b654353f89f.dir
+      size: 252384
+      nfiles: 7
+    - path: reports/metrics_spam_champion.json
+      hash: md5
+      md5: 42fa4a8ecb114c52f82f8818d42646b5
+      size: 124
+  train_langid:
+    cmd: python -m moderaguard.models.train --task langid
+    deps:
+    - path: src/moderaguard/models/core.py
+      hash: md5
+      md5: be2f004a40287e3ee7fff724e9dc365c
+      size: 5545
+    outs:
+    - path: models/langid/champion
+      hash: md5
+      md5: 3beb92ae0e86c7b272a28789ec1f4b55.dir
+      size: 302
+      nfiles: 2
+  fairness:
+    cmd: python -m moderaguard.responsible.fairness --variant champion 
+      champion_unmitigated challenger
+    deps:
+    - path: data/processed/toxicity_test.parquet
+      hash: md5
+      md5: 58ed27a5b652c97951bee0b7b106f944
+      size: 32185
+    - path: models/toxicity/challenger
+      hash: md5
+      md5: c7d5a7a2f4722d4ad77a8ee6f0c44638.dir
+      size: 286555
+      nfiles: 8
+    - path: models/toxicity/champion
+      hash: md5
+      md5: 24645f5eb2387eb14a28d57fe40f203b.dir
+      size: 262678
+      nfiles: 8
+    - path: models/toxicity/champion_unmitigated
+      hash: md5
+      md5: ad0ced367f9cda623cfde5ebd4982b5e.dir
+      size: 273323
+      nfiles: 8
+    - path: src/moderaguard/responsible/fairness.py
+      hash: md5
+      md5: 040aaaa9a52bfa909ecd6fa4b810b736
+      size: 10567
+    params:
+      params.yaml:
+        fairness:
+          identity_columns:
+          - male
+          - female
+          - homosexual_gay_or_lesbian
+          - christian
+          - jewish
+          - muslim
+          - black
+          - white
+          - psychiatric_or_mental_illness
+          identity_threshold: 0.5
+          min_group_size: 30
+    outs:
+    - path: reports/fairness_challenger.json
+      hash: md5
+      md5: b0f360cbf63a16bb3c7f6ff02fe5ba1a
+      size: 1597
+    - path: reports/fairness_champion.json
+      hash: md5
+      md5: b0f360cbf63a16bb3c7f6ff02fe5ba1a
+      size: 1597
+    - path: reports/fairness_champion_unmitigated.json
+      hash: md5
+      md5: aeb9d26cec45455f7a5ad0f81beb4903
+      size: 1583
+    - path: reports/fairness_report.md
+      hash: md5
+      md5: 62bb5b5c8e00829c8b16ed5d7160388f
+      size: 2152
+  quality_gate:
+    cmd: python -m moderaguard.responsible.quality_gate --task toxicity 
+      --candidate challenger --baseline champion
+    deps:
+    - path: reports/fairness_challenger.json
+      hash: md5
+      md5: b0f360cbf63a16bb3c7f6ff02fe5ba1a
+      size: 1597
+    - path: reports/fairness_champion.json
+      hash: md5
+      md5: b0f360cbf63a16bb3c7f6ff02fe5ba1a
+      size: 1597
+    - path: reports/metrics_toxicity_challenger.json
+      hash: md5
+      md5: 0344d275e9d1760ae9d2719125ea130e
+      size: 136
+    - path: reports/metrics_toxicity_champion.json
+      hash: md5
+      md5: 0344d275e9d1760ae9d2719125ea130e
+      size: 136
+    - path: src/moderaguard/responsible/quality_gate.py
+      hash: md5
+      md5: 4f79fb56073c9f3177c29e4817a5d259
+      size: 3389
+    params:
+      params.yaml:
+        quality_gate:
+          min_auc: 0.8
+          max_auc_drop: 0.005
+          max_fairness_gap_increase: 0.02
+    outs:
+    - path: reports/gate_toxicity.json
+      hash: md5
+      md5: cad30c5f8d3b16a90dd742dda873092b
+      size: 486

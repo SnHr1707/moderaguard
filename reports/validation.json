@@ -1,0 +1,18 @@
+{
+  "toxicity_train": {
+    "rows": 5178,
+    "status": "passed"
+  },
+  "toxicity_test": {
+    "rows": 1295,
+    "status": "passed"
+  },
+  "spam_train": {
+    "rows": 1760,
+    "status": "passed"
+  },
+  "spam_test": {
+    "rows": 440,
+    "status": "passed"
+  }
+}

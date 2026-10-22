@@ -1,0 +1,82 @@
+{
+  "overall_auc": 0.998,
+  "final_bias_score": 0.9613,
+  "worst_fpr_gap": 0.68,
+  "fpr_by_group": {
+    "black": 0.65,
+    "christian": 0.0,
+    "female": 0.0,
+    "homosexual_gay_or_lesbian": 0.3571,
+    "jewish": 0.0,
+    "male": 0.0,
+    "muslim": 0.68,
+    "no_identity": 0.0,
+    "psychiatric_or_mental_illness": 0.0,
+    "white": 0.0
+  },
+  "groups": [
+    {
+      "group": "male",
+      "size": 42,
+      "subgroup_auc": 1.0,
+      "bpsn_auc": 1.0,
+      "bnsp_auc": 1.0
+    },
+    {
+      "group": "female",
+      "size": 50,
+      "subgroup_auc": 1.0,
+      "bpsn_auc": 1.0,
+      "bnsp_auc": 1.0
+    },
+    {
+      "group": "homosexual_gay_or_lesbian",
+      "size": 30,
+      "subgroup_auc": 0.7857,
+      "bpsn_auc": 0.9863,
+      "bnsp_auc": 0.9867
+    },
+    {
+      "group": "christian",
+      "size": 38,
+      "subgroup_auc": 1.0,
+      "bpsn_auc": 1.0,
+      "bnsp_auc": 1.0
+    },
+    {
+      "group": "jewish",
+      "size": 41,
+      "subgroup_auc": 1.0,
+      "bpsn_auc": 1.0,
+      "bnsp_auc": 1.0
+    },
+    {
+      "group": "muslim",
+      "size": 37,
+      "subgroup_auc": 0.9133,
+      "bpsn_auc": 0.9684,
+      "bnsp_auc": 0.9963
+    },
+    {
+      "group": "black",
+      "size": 38,
+      "subgroup_auc": 0.6528,
+      "bpsn_auc": 0.9807,
+      "bnsp_auc": 0.988
+    },
+    {
+      "group": "white",
+      "size": 41,
+      "subgroup_auc": 1.0,
+      "bpsn_auc": 1.0,
+      "bnsp_auc": 1.0
+    },
+    {
+      "group": "psychiatric_or_mental_illness",
+      "size": 37,
+      "subgroup_auc": 1.0,
+      "bpsn_auc": 1.0,
+      "bnsp_auc": 1.0
+    }
+  ]
+}

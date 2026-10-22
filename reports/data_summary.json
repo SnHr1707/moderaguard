@@ -1,0 +1,16 @@
+{
+  "source": {
+    "toxicity": "sample",
+    "spam": "sample"
+  },
+  "include_stream": false,
+  "rows": {
+    "toxicity_train": 5178,
+    "toxicity_test": 1295,
+    "toxicity_stream": 1527,
+    "spam_train": 1760,
+    "spam_test": 440
+  },
+  "toxic_share_train": 0.2613,
+  "spam_share_train": 0.2795
+}
