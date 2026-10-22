@@ -1,0 +1,23 @@
+# Jenkins on the VM (owner: M6). Started by infra/cloud/setup-vm.sh.
+# /var/jenkins_home is mounted at the SAME path on the host so that the
+# `docker run -v $WORKSPACE:/workspace` calls in the Jenkinsfile point at real
+# host folders (Jenkins talks to the host's Docker daemon).
+services:
+  jenkins:
+    build: {context: ../.., dockerfile: infra/jenkins/Dockerfile}
+    restart: unless-stopped
+    user: root          # needed to use the host's docker.sock; acceptable for a course VM
+    environment:
+      JENKINS_OPTS: --httpPort=8081
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-change-me}
+      GIT_REPO_URL: ${GIT_REPO_URL:-https://github.com/your-org/moderaguard.git}
+      JENKINS_HOME: /var/jenkins_home
+      VM_IP: ${VM_IP:?set VM_IP in .env (setup-vm.sh does this)}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-moderaguard}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-moderaguard-secret}
+    ports: ["8081:8081"]
+    volumes:
+      - /var/jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../cloud/kubeconfig-vm.yaml:/var/jenkins_secrets/kubeconfig-vm.yaml:ro

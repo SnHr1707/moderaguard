@@ -1,0 +1,53 @@
+# Jenkins configuration as code (owner: M6): admin user, credentials and the
+# pipeline job are created on start, so Jenkins is reproducible from Git.
+jenkins:
+  systemMessage: "ModeraGuard CI/CD"
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: ${JENKINS_ADMIN_USER:-admin}
+          password: ${JENKINS_ADMIN_PASSWORD:-change-me}
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - file:
+              id: kubeconfig-vm
+              description: kubeconfig for the k3s cluster on this VM
+              fileName: kubeconfig
+              secretBytes: ${readFileBase64:/var/jenkins_secrets/kubeconfig-vm.yaml}
+          - usernamePassword:
+              id: s3-dvc
+              description: S3 (SeaweedFS) keys for the DVC remote
+              username: ${S3_ACCESS_KEY:-moderaguard}
+              password: ${S3_SECRET_KEY:-moderaguard-secret}
+
+unclassified:
+  location:
+    url: ${JENKINS_URL:-http://localhost:8081/}
+
+jobs:
+  - script: |
+      pipelineJob('moderaguard') {
+        description('Lint, test, train, gate, build, scan, deploy (see Jenkinsfile)')
+        properties {
+          pipelineTriggers { triggers { githubPush() } }
+        }
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote { url('${GIT_REPO_URL}') }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+          }
+        }
+      }
