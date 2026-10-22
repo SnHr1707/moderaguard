@@ -1,0 +1,18 @@
+# Alertmanager routing (owner: M7).
+route:
+  receiver: default
+  group_by: [alertname]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 1h
+  routes:
+    - matchers: ['action="retrain"']
+      receiver: retrain
+      repeat_interval: 1h
+
+receivers:
+  - name: default          # visible in the Alertmanager UI; add email/Slack here if you like
+  - name: retrain
+    webhook_configs:
+      - url: http://alert-bridge:8090/alert
+        send_resolved: false

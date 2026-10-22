@@ -1,0 +1,37 @@
+# Unit tests for the alert rules (owner: M7). Run:
+#   promtool test rules monitoring/prometheus/alerts_test.yml
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: drift above threshold requests retraining
+    interval: 1m
+    input_series:
+      - series: moderaguard_drift_share
+        values: "0.1 0.1 0.6 0.6"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ModelDriftDetected
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: ModelDriftDetected
+        exp_alerts:
+          - exp_labels: {severity: warning, action: retrain}
+            exp_annotations:
+              summary: "Input drift: 60% of monitored features drifted"
+              description: "Recent comments differ from the training data. retrain_dag has been requested."
+
+  - name: a down service alerts after one minute
+    interval: 30s
+    input_series:
+      - series: 'up{job="moderaguard-services", app="spam-svc"}'
+        values: "1 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: moderaguard-services, app: spam-svc}
+            exp_annotations:
+              summary: "spam-svc is not responding"
