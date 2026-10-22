@@ -1,0 +1,9 @@
+# Pinned versions shared by training and serving. Serving unpickles models
+# trained elsewhere, so scikit-learn (and numpy) MUST match exactly everywhere.
+# Tested together on Python 3.12/3.13.
+numpy==2.5.3
+pandas==3.0.5
+pyarrow==25.0.1
+scikit-learn==1.9.1
+joblib==1.6.0
+PyYAML==6.0.3

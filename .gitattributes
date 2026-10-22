@@ -1,0 +1,17 @@
+# Keep Unix line endings for everything that runs inside Linux containers.
+# Without this, Git on Windows (core.autocrlf=true) converts shell scripts and
+# Dockerfiles to CRLF and the containers fail with errors like "sh\r: not found".
+* text=auto eol=lf
+
+# Windows-only files keep Windows line endings
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.parquet binary
+*.joblib binary
+*.ftz binary
+*.zip binary

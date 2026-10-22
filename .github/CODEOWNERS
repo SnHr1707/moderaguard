@@ -1,0 +1,44 @@
+# Each path is owned by one member; GitHub asks them to review every PR that
+# touches it. Replace the placeholders with real GitHub usernames.
+*                               @M1-github-username
+
+/src/moderaguard/data/          @M1-github-username
+/src/moderaguard/features/      @M1-github-username
+/dvc.yaml                       @M1-github-username
+/infra/seaweedfs/               @M1-github-username
+
+/services/producer/             @M2-github-username
+/services/consumer/             @M2-github-username
+/pipelines/                     @M2-github-username
+/infra/airflow/                 @M2-github-username
+
+/src/moderaguard/models/        @M3-github-username
+/infra/mlflow/                  @M3-github-username
+/infra/postgres/                @M3-github-username
+/infra/trainer/                 @M3-github-username
+/params.yaml                    @M3-github-username @M1-github-username
+
+/src/moderaguard/responsible/   @M4-github-username
+/services/moderator-ui/         @M4-github-username
+/docs/model_card.md             @M4-github-username
+
+/src/moderaguard/serving/       @M5-github-username
+/services/gateway/              @M5-github-username
+/services/model-service/        @M5-github-username
+/docker-compose.yml             @M5-github-username
+/k8s/base/                      @M5-github-username
+
+/Jenkinsfile                    @M6-github-username
+/.github/                       @M6-github-username
+/infra/jenkins/                 @M6-github-username
+/infra/ci/                      @M6-github-username
+/infra/cloud/                   @M6-github-username
+/k8s/overlays/                  @M6-github-username
+/k8s/scripts/                   @M6-github-username
+
+/monitoring/                    @M7-github-username
+/services/drift-job/            @M7-github-username
+/services/alert-bridge/         @M7-github-username
+/k8s/monitoring/                @M7-github-username
+
+/docs/contracts.md              @M1-github-username @M2-github-username @M3-github-username @M4-github-username @M5-github-username @M6-github-username @M7-github-username

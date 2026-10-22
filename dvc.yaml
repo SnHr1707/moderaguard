@@ -1,0 +1,123 @@
+# Reproducible pipeline. `dvc repro` runs only the stages whose inputs changed.
+# `dvc dag` prints the graph. Owners: prepare/validate = M1, train = M3,
+# fairness/gate = M4.
+stages:
+  prepare:
+    cmd: python -m moderaguard.data.prepare
+    deps:
+      - src/moderaguard/data/prepare.py
+      - data/raw
+      - data/sample
+    params:
+      - data
+    outs:
+      - data/processed/toxicity_train.parquet
+      - data/processed/toxicity_test.parquet
+      - data/processed/toxicity_stream.parquet
+      - data/processed/spam_train.parquet
+      - data/processed/spam_test.parquet
+    metrics:
+      - reports/data_summary.json:
+          cache: false
+
+  validate:
+    cmd: python -m moderaguard.data.validate
+    deps:
+      - src/moderaguard/data/validate.py
+      - data/processed
+    metrics:
+      - reports/validation.json:
+          cache: false
+
+  train_toxicity:
+    foreach: [champion, challenger]
+    do:
+      cmd: python -m moderaguard.models.train --task toxicity --variant ${item}
+      deps:
+        - src/moderaguard/models
+        - src/moderaguard/features
+        - data/processed/toxicity_train.parquet
+        - data/processed/toxicity_test.parquet
+        - reports/validation.json
+      params:
+        - features
+        - toxicity
+      outs:
+        - models/toxicity/${item}
+      metrics:
+        - reports/metrics_toxicity_${item}.json:
+            cache: false
+
+  train_toxicity_unmitigated:
+    cmd: python -m moderaguard.models.train --task toxicity --variant champion --no-mitigation
+    deps:
+      - src/moderaguard/models
+      - data/processed/toxicity_train.parquet
+      - reports/validation.json
+    params:
+      - features
+      - toxicity
+    outs:
+      - models/toxicity/champion_unmitigated
+    metrics:
+      - reports/metrics_toxicity_champion_unmitigated.json:
+          cache: false
+
+  train_spam:
+    cmd: python -m moderaguard.models.train --task spam
+    deps:
+      - src/moderaguard/models
+      - src/moderaguard/features
+      - data/processed/spam_train.parquet
+      - data/processed/spam_test.parquet
+      - reports/validation.json
+    params:
+      - features
+      - spam
+    outs:
+      - models/spam/champion
+    metrics:
+      - reports/metrics_spam_champion.json:
+          cache: false
+
+  train_langid:
+    cmd: python -m moderaguard.models.train --task langid
+    deps:
+      - src/moderaguard/models/core.py
+    outs:
+      - models/langid/champion
+
+  fairness:
+    cmd: python -m moderaguard.responsible.fairness --variant champion champion_unmitigated challenger
+    deps:
+      - src/moderaguard/responsible/fairness.py
+      - models/toxicity/champion
+      - models/toxicity/champion_unmitigated
+      - models/toxicity/challenger
+      - data/processed/toxicity_test.parquet
+    params:
+      - fairness
+    outs:
+      - reports/fairness_report.md:
+          cache: false
+    metrics:
+      - reports/fairness_champion.json:
+          cache: false
+      - reports/fairness_challenger.json:
+          cache: false
+      - reports/fairness_champion_unmitigated.json:
+          cache: false
+
+  quality_gate:
+    cmd: python -m moderaguard.responsible.quality_gate --task toxicity --candidate challenger --baseline champion
+    deps:
+      - src/moderaguard/responsible/quality_gate.py
+      - reports/metrics_toxicity_champion.json
+      - reports/metrics_toxicity_challenger.json
+      - reports/fairness_champion.json
+      - reports/fairness_challenger.json
+    params:
+      - quality_gate
+    metrics:
+      - reports/gate_toxicity.json:
+          cache: false

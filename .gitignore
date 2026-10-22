@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets and local settings
+.env
+infra/cloud/kubeconfig-vm.yaml
+.dvc/config.local
+
+# Data and models are versioned by DVC, not Git
+/data/raw/*
+!/data/raw/.gitkeep
+/data/processed/
+/models/
+/mlruns/
+mlflow.db
+
+# Reports: the small metric files ARE committed (DVC's `cache: false` metrics),
+# so `dvc metrics diff` can compare any two commits. Bulky or per-run files are not.
+/reports/*
+!/reports/.gitkeep
+!/reports/*.json
+!/reports/fairness_report.md
+/reports/junit.xml
+/reports/feedback.jsonl
+/reports/drift/
+/reports/smoke.json
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

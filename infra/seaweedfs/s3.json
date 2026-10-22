@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "moderaguard",
+      "credentials": [{"accessKey": "moderaguard", "secretKey": "moderaguard-secret"}],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

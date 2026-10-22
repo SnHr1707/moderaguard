@@ -1,0 +1,13 @@
+.git
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+data
+models
+reports
+mlruns
+.env
+infra/cloud/kubeconfig-vm.yaml
