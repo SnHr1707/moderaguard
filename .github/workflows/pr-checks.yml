@@ -1,0 +1,113 @@
+# Fast checks on every pull request (owner: M6).
+# Jenkins (Jenkinsfile) does the heavy work after merge: training, the quality
+# gate, image builds, scanning and deployment. Branch protection on main and
+# develop requires these jobs to pass before a PR can be merged.
+name: PR checks
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [develop]
+
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install ruff==0.17.0
+      - run: ruff check . --output-format=github
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/*.txt
+      - run: pip install -r requirements/dev.txt && pip install --no-deps -e .
+      - name: Unit, data, model and API tests (on the generated sample data)
+        env: {MODERAGUARD_DISABLE_MLFLOW: "1", MLFLOW_DISABLE_AGENT_HINT: "1"}
+        run: pytest --cov=moderaguard --cov-report=term --cov-report=xml --junitxml=reports/junit.xml
+      - name: Fairness report for this PR
+        if: always()
+        run: |
+          python -m moderaguard.responsible.fairness --variant champion || true
+          { echo "## Fairness (sample data)"; cat reports/fairness_report.md; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            reports/junit.xml
+            coverage.xml
+            reports/*.json
+            reports/*.md
+
+  airflow-dags:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: |
+          pip install "apache-airflow==3.3.2" pytest pyyaml \
+            --constraint https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt
+      - name: DAGs import and have the right structure
+        env: {PYTHONPATH: src, AIRFLOW__CORE__LOAD_EXAMPLES: "False"}
+        run: pytest tests/unit/test_dags.py -p no:cacheprovider -o addopts="" -o pythonpath=""
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kustomize, kubeconform and promtool
+        run: |
+          curl -sSL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.7.1/kustomize_v5.7.1_linux_amd64.tar.gz | tar xz
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar xz
+          curl -sSL https://github.com/prometheus/prometheus/releases/download/v3.5.0/prometheus-3.5.0.linux-amd64.tar.gz | tar xz
+          curl -sSL https://github.com/prometheus/alertmanager/releases/download/v0.28.1/alertmanager-0.28.1.linux-amd64.tar.gz | tar xz
+      - name: Kubernetes manifests build and match the API schemas
+        run: |
+          for o in k8s/overlays/local k8s/overlays/cloud k8s/overlays/canary; do
+            ./kustomize build $o > /tmp/$(basename $o).yaml
+          done
+          ./kustomize build --load-restrictor LoadRestrictionsNone k8s/monitoring > /tmp/monitoring.yaml
+          ./kubeconform -strict -summary -kubernetes-version 1.33.0 \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            /tmp/local.yaml /tmp/cloud.yaml /tmp/canary.yaml /tmp/monitoring.yaml
+      - name: Alert rules are valid and their unit tests pass
+        run: |
+          ./prometheus-3.5.0.linux-amd64/promtool check rules monitoring/prometheus/alerts.yml
+          ./prometheus-3.5.0.linux-amd64/promtool test rules monitoring/prometheus/alerts_test.yml
+          ./alertmanager-0.28.1.linux-amd64/amtool check-config monitoring/alertmanager/alertmanager.yml
+      - name: Docker Compose file is valid
+        run: cp .env.example .env && docker compose --profile setup --profile stream config --quiet
+
+  docker-build:
+    # builds every service image (no push) so a broken Dockerfile is caught in the PR
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [gateway, model-service, moderator-ui, consumer, producer, drift-job, alert-bridge]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: false
+          tags: moderaguard/${{ matrix.service }}:pr-${{ github.event.number || 'push' }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
