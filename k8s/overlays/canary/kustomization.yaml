@@ -1,0 +1,18 @@
+# Canary rollout of the toxicity challenger (owner: M6).
+# Adds a canary gateway + toxicity service (MODEL_ALIAS=challenger) and a
+# weighted route. Everything canary-only carries the label track=canary, so
+# scripts/end-canary.sh can remove it in one command.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: moderaguard
+resources:
+  - ../cloud
+  - toxicity-svc-canary.yaml
+  - gateway-canary.yaml
+patches:
+  - path: route-canary.yaml
+# Jenkins sets these to the same registry/tag as the cloud overlay
+images:
+  - {name: moderaguard/model-service, newTag: local}
+  - {name: moderaguard/gateway, newTag: local}
+  - {name: moderaguard/moderator-ui, newTag: local}

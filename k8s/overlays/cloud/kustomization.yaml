@@ -1,0 +1,11 @@
+# Cloud VM running k3s (owner: M6). Jenkins sets the image registry and tags:
+#   cd k8s/overlays/cloud && kustomize edit set image moderaguard/gateway=ghcr.io/<you>/moderaguard-gateway:<build>
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - gateway-api.yaml
+namespace: moderaguard
+configMapGenerator:
+  - name: moderaguard-platform
+    envs: [platform.env]

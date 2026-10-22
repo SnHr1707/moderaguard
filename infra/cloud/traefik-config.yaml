@@ -1,0 +1,16 @@
+# Turns on the Gateway API provider of the Traefik that ships with k3s (owner: M6).
+# Copied to /var/lib/rancher/k3s/server/manifests/ by setup-vm.sh; k3s applies it.
+# The Gateway API CRDs ship with k3s. We create our own Gateway (k8s/overlays/cloud),
+# so the chart's default Gateway is disabled.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    providers:
+      kubernetesGateway:
+        enabled: true
+    gateway:
+      enabled: false

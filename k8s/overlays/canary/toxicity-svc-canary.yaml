@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toxicity-svc-canary
+  labels: {app: toxicity-svc-canary, component: model-service, track: canary}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: toxicity-svc-canary}
+  template:
+    metadata:
+      labels: {app: toxicity-svc-canary, component: model-service, track: canary}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: /metrics/
+    spec:
+      containers:
+        - name: model-service
+          image: moderaguard/model-service
+          ports: [{containerPort: 8001, name: http}]
+          env:
+            - {name: TASK, value: toxicity}
+            - {name: PORT, value: "8001"}
+            - {name: MODEL_ALIAS, value: challenger}
+            - {name: VARIANT, value: canary}
+          envFrom:
+            - configMapRef: {name: moderaguard-serving}
+            - configMapRef: {name: moderaguard-platform}
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 384Mi}
+            limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: toxicity-svc-canary
+  labels: {app: toxicity-svc-canary, track: canary}
+spec:
+  selector: {app: toxicity-svc-canary}
+  ports: [{name: http, port: 8001, targetPort: http}]
