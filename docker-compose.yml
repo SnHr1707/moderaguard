@@ -1,0 +1,304 @@
+# ModeraGuard local stack (owner: M5; each service lists its owner).
+#
+#   cp .env.example .env
+#   docker compose up -d --build              # platform + serving + monitoring
+#   docker compose run --rm trainer           # first time only: train + register models
+#   docker compose --profile stream up -d producer   # start streaming comments
+#
+# Needs about 8 GB RAM for everything. URLs: see README "Local URLs".
+
+x-python-env: &python-env
+  PYTHONUNBUFFERED: "1"
+
+x-mlflow-client: &mlflow-client
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+
+services:
+  # ---------------------------------------------------------------- platform
+  postgres:                                   # M3
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-moderaguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-moderaguard}
+      POSTGRES_DB: moderaguard
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-moderaguard}"]
+      interval: 5s
+      retries: 20
+
+  s3:                                         # M1 - S3-compatible storage for DVC data and MLflow artifacts
+    image: chrislusf/seaweedfs:4.48
+    command: server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+    volumes:
+      - s3data:/data
+      - ./infra/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    ports: ["8333:8333", "9333:9333"]
+
+  s3-init:                                    # M1 - creates the buckets once
+    image: amazon/aws-cli:2.27.0
+    depends_on: [s3]
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-moderaguard}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-moderaguard-secret}
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for i in $(seq 1 30); do aws --endpoint-url http://s3:8333 s3 ls >/dev/null 2>&1 && break; sleep 2; done
+        for b in mlflow dvc; do aws --endpoint-url http://s3:8333 s3 mb s3://$$b 2>/dev/null || true; done
+        aws --endpoint-url http://s3:8333 s3 ls
+    restart: "no"
+
+  mlflow:                                     # M3
+    build: {context: ., dockerfile: infra/mlflow/Dockerfile}
+    depends_on:
+      postgres: {condition: service_healthy}
+      s3-init: {condition: service_completed_successfully}
+    environment:
+      # "+psycopg2" names the driver installed in the image; MLflow 3.17 otherwise looks for psycopg 3
+      MLFLOW_BACKEND_STORE_URI: postgresql+psycopg2://${POSTGRES_USER:-moderaguard}:${POSTGRES_PASSWORD:-moderaguard}@postgres:5432/mlflow
+      MLFLOW_ARTIFACTS_DESTINATION: s3://mlflow
+      MLFLOW_S3_ENDPOINT_URL: http://s3:8333
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-moderaguard}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-moderaguard-secret}
+      MLFLOW_ALLOWED_HOSTS: ${MLFLOW_ALLOWED_HOSTS:-mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1:5000,10.*,172.*,192.168.*}
+    ports: ["5000:5000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      retries: 30
+
+  kafka:                                      # M2 - single broker, KRaft mode (no ZooKeeper)
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://${KAFKA_EXTERNAL_HOST:-localhost}:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+    ports: ["29092:29092"]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      retries: 20
+
+  trainer:                                    # M3 - one-off: `docker compose run --rm trainer`
+    build: {context: ., dockerfile: infra/trainer/Dockerfile}
+    profiles: ["setup"]
+    depends_on:
+      mlflow: {condition: service_healthy}
+    environment:
+      <<: *mlflow-client
+      MODERAGUARD_ROOT: /workspace
+    volumes:
+      - ./data:/workspace/data
+      - ./models:/workspace/models
+      - ./reports:/workspace/reports
+      - ./params.yaml:/workspace/params.yaml:ro
+
+  airflow:                                    # M2 - standalone: API server, scheduler, DAG processor, triggerer
+    build: {context: ., dockerfile: infra/airflow/Dockerfile}
+    command: standalone
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      <<: *mlflow-client
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-moderaguard}:${POSTGRES_PASSWORD:-moderaguard}@postgres:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/moderaguard/pipelines/airflow/dags
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: admin:admin
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/passwords.json
+      PREDICTIONS_DSN: postgresql://${POSTGRES_USER:-moderaguard}:${POSTGRES_PASSWORD:-moderaguard}@postgres:5432/moderaguard
+      GATEWAY_URL: ${GATEWAY_URL:-http://gateway:8000}
+      PUSHGATEWAY: ${PUSHGATEWAY:-pushgateway:9091}
+      JENKINS_URL: ${JENKINS_URL:-}
+      JENKINS_USER: ${JENKINS_USER:-}
+      JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
+    volumes:
+      - .:/opt/moderaguard
+      - ./infra/airflow/simple_auth_manager_passwords.json:/opt/airflow/passwords.json
+    ports: ["8080:8080"]
+
+  # ----------------------------------------------------------------- serving
+  toxicity-svc:                               # M5
+    build: &model-service-build {context: ., dockerfile: services/model-service/Dockerfile}
+    image: moderaguard/model-service:${IMAGE_TAG:-local}
+    environment: &model-env
+      <<: [*python-env, *mlflow-client]
+      TASK: toxicity
+      PORT: "8001"
+      MODEL_SOURCE: ${MODEL_SOURCE:-mlflow}
+      MODEL_ALIAS: champion
+      VARIANT: stable
+    volumes: ["./models:/app/models:ro"]      # used only when MODEL_SOURCE=local
+    depends_on: [mlflow]
+    ports: ["8001:8001"]
+
+  spam-svc:                                   # M5
+    build: *model-service-build
+    image: moderaguard/model-service:${IMAGE_TAG:-local}
+    environment:
+      <<: *model-env
+      TASK: spam
+      PORT: "8002"
+    volumes: ["./models:/app/models:ro"]
+    depends_on: [mlflow]
+    ports: ["8002:8002"]
+
+  langid-svc:                                 # M5
+    build: *model-service-build
+    image: moderaguard/model-service:${IMAGE_TAG:-local}
+    environment:
+      <<: *model-env
+      TASK: langid
+      PORT: "8003"
+    volumes: ["./models:/app/models:ro"]
+    depends_on: [mlflow]
+    ports: ["8003:8003"]
+
+  gateway:                                    # M5
+    build: {context: ., dockerfile: services/gateway/Dockerfile}
+    image: moderaguard/gateway:${IMAGE_TAG:-local}
+    environment:
+      <<: *python-env
+      TOXICITY_URL: http://toxicity-svc:8001
+      SPAM_URL: http://spam-svc:8002
+      LANGID_URL: http://langid-svc:8003
+      FEEDBACK_DSN: postgresql://${POSTGRES_USER:-moderaguard}:${POSTGRES_PASSWORD:-moderaguard}@postgres:5432/moderaguard
+      VARIANT: stable
+    depends_on: [toxicity-svc, spam-svc, langid-svc, postgres]
+    ports: ["8000:8000"]
+
+  moderator-ui:                               # M4 - the demo console
+    build: {context: ., dockerfile: services/moderator-ui/Dockerfile}
+    image: moderaguard/moderator-ui:${IMAGE_TAG:-local}
+    environment:
+      GATEWAY_URL: http://gateway:8000
+      MLFLOW_URL: http://mlflow:5000
+      PREDICTIONS_DSN: postgresql://${POSTGRES_USER:-moderaguard}:${POSTGRES_PASSWORD:-moderaguard}@postgres:5432/moderaguard
+      MODELS_DIR: /data/models
+      REPORTS_DIR: /data/reports
+    volumes:
+      - ./models:/data/models:ro
+      - ./reports:/data/reports:ro
+    depends_on: [gateway]
+    ports: ["8501:8501"]
+
+  consumer:                                   # M2
+    build: {context: ., dockerfile: services/consumer/Dockerfile}
+    image: moderaguard/consumer:${IMAGE_TAG:-local}
+    environment:
+      <<: *python-env
+      KAFKA_BOOTSTRAP: kafka:9092
+      GATEWAY_URL: ${GATEWAY_URL:-http://gateway:8000}
+      PREDICTIONS_DSN: postgresql://${POSTGRES_USER:-moderaguard}:${POSTGRES_PASSWORD:-moderaguard}@postgres:5432/moderaguard
+    depends_on:
+      kafka: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+    restart: on-failure
+
+  producer:                                   # M2 - `docker compose --profile stream up -d producer`
+    build: {context: ., dockerfile: services/producer/Dockerfile}
+    image: moderaguard/producer:${IMAGE_TAG:-local}
+    profiles: ["stream"]
+    environment:
+      <<: *python-env
+      KAFKA_BOOTSTRAP: kafka:9092
+      DATA_DIR: /data/processed
+      PRODUCER_MODE: ${PRODUCER_MODE:-baseline}
+      PRODUCER_RATE: ${PRODUCER_RATE:-5}
+    volumes: ["./data:/data:ro"]
+    depends_on:
+      kafka: {condition: service_healthy}
+
+  toolbox:                                    # M5 - runs scripts/ without Python on your laptop
+    image: moderaguard/gateway:${IMAGE_TAG:-local}   # reuses the gateway image (it has httpx)
+    profiles: ["tools"]
+    entrypoint: ["python"]
+    working_dir: /work
+    volumes:
+      - ./scripts:/work/scripts:ro
+      - ./data:/data:ro
+
+  # -------------------------------------------------------------- monitoring
+  prometheus:                                 # M7
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - promdata:/prometheus
+    ports: ["9090:9090"]
+
+  alertmanager:                               # M7
+    image: prom/alertmanager:v0.28.1
+    command: --config.file=/etc/alertmanager/alertmanager.yml
+    volumes: ["./monitoring/alertmanager:/etc/alertmanager:ro"]
+    ports: ["9093:9093"]
+
+  postgres-exporter:                          # M7 - database metrics (Lab 7: monitor a database)
+    image: prometheuscommunity/postgres-exporter:v0.19.1
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-moderaguard}:${POSTGRES_PASSWORD:-moderaguard}@postgres:5432/moderaguard?sslmode=disable
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  node-exporter:                              # M7 - host CPU, memory, disk (Lab 7: monitor a server)
+    image: prom/node-exporter:v1.9.1
+    # Plain read-only mounts work on Docker Desktop (Windows/macOS) as well as Linux.
+    # On Docker Desktop the "host" is Docker's Linux VM, which is what runs the stack.
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+
+  pushgateway:                                # M7 - receives the drift score from the batch drift job
+    image: prom/pushgateway:v1.11.1
+    ports: ["9091:9091"]
+
+  grafana:                                    # M7
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on: [prometheus]
+    ports: ["3000:3000"]
+
+  alert-bridge:                               # M7 - Alertmanager webhook -> Airflow retrain_dag
+    build: {context: ., dockerfile: services/alert-bridge/Dockerfile}
+    image: moderaguard/alert-bridge:${IMAGE_TAG:-local}
+    environment:
+      AIRFLOW_URL: http://airflow:8080
+      AIRFLOW_USER: admin
+      AIRFLOW_PASSWORD: admin
+    ports: ["8090:8090"]
+
+volumes:
+  pgdata:
+  s3data:
+  promdata:
+  grafanadata:

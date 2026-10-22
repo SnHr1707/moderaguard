@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: moderator-ui
+  labels: {app: moderator-ui, track: stable}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: moderator-ui}
+  template:
+    metadata:
+      labels: {app: moderator-ui, track: stable}
+    spec:
+      containers:
+        - name: ui
+          image: moderaguard/moderator-ui
+          # served under /ui behind the Gateway API route
+          args: ["streamlit", "run", "ui.py", "--server.port=8501", "--server.address=0.0.0.0",
+                 "--server.baseUrlPath=ui", "--browser.gatherUsageStats=false"]
+          ports: [{containerPort: 8501, name: http}]
+          env:
+            - {name: GATEWAY_URL, value: "http://gateway:8000"}
+          readinessProbe:
+            httpGet: {path: /ui/_stcore/health, port: http}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: moderator-ui
+spec:
+  selector: {app: moderator-ui}
+  ports: [{name: http, port: 8501, targetPort: http}]

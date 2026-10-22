@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toxicity-svc
+  labels: {app: toxicity-svc, component: model-service, track: stable}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: toxicity-svc}
+  template:
+    metadata:
+      labels: {app: toxicity-svc, component: model-service, track: stable}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: /metrics/
+    spec:
+      containers:
+        - name: model-service
+          image: moderaguard/model-service
+          ports: [{containerPort: 8001, name: http}]
+          env:
+            - {name: TASK, value: toxicity}
+            - {name: PORT, value: "8001"}
+            - {name: MODEL_ALIAS, value: champion}
+            - {name: VARIANT, value: stable}
+          envFrom:
+            - configMapRef: {name: moderaguard-serving}
+            - configMapRef: {name: moderaguard-platform}
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 384Mi}
+            limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: toxicity-svc
+  labels: {app: toxicity-svc, track: stable}
+spec:
+  selector: {app: toxicity-svc}
+  ports: [{name: http, port: 8001, targetPort: http}]

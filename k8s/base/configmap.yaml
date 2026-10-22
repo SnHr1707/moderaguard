@@ -1,0 +1,14 @@
+# Settings shared by the serving pods (owner: M5).
+# MLFLOW_TRACKING_URI comes from the overlay (platform.env), because MLflow
+# runs outside the cluster (Docker Compose on the VM / your laptop).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: moderaguard-serving
+data:
+  MODEL_SOURCE: mlflow
+  TOXICITY_BLOCK: "0.85"
+  TOXICITY_REVIEW: "0.5"
+  SPAM_BLOCK: "0.9"
+  SPAM_REVIEW: "0.6"
+  SUPPORTED_LANGUAGES: en

@@ -1,0 +1,17 @@
+# Base serving manifests (owner: M5). Overlays add environment-specific settings.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: moderaguard
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - toxicity-svc.yaml
+  - spam-svc.yaml
+  - langid-svc.yaml
+  - gateway.yaml
+  - moderator-ui.yaml
+  - hpa.yaml
+images:
+  - {name: moderaguard/model-service, newTag: local}
+  - {name: moderaguard/gateway, newTag: local}
+  - {name: moderaguard/moderator-ui, newTag: local}

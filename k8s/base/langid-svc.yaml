@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langid-svc
+  labels: {app: langid-svc, component: model-service, track: stable}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: langid-svc}
+  template:
+    metadata:
+      labels: {app: langid-svc, component: model-service, track: stable}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8003"
+        prometheus.io/path: /metrics/
+    spec:
+      containers:
+        - name: model-service
+          image: moderaguard/model-service
+          ports: [{containerPort: 8003, name: http}]
+          env:
+            - {name: TASK, value: langid}
+            - {name: PORT, value: "8003"}
+            - {name: MODEL_ALIAS, value: champion}
+            - {name: VARIANT, value: stable}
+          envFrom:
+            - configMapRef: {name: moderaguard-serving}
+            - configMapRef: {name: moderaguard-platform}
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 384Mi}
+            limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langid-svc
+  labels: {app: langid-svc, track: stable}
+spec:
+  selector: {app: langid-svc}
+  ports: [{name: http, port: 8003, targetPort: http}]
