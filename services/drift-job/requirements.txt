@@ -1,0 +1,6 @@
+pandas==3.0.5
+pyarrow==25.0.1
+evidently==0.7.23
+psycopg2-binary==2.9.13
+prometheus-client==0.26.0
+httpx==0.28.1

@@ -1,0 +1,93 @@
+# Alert rules (owner: M7). Shared by the Compose and Kubernetes Prometheus.
+# Alerts with label action=retrain are routed to the alert bridge, which starts
+# Airflow's retrain_dag. Thresholds match params.yaml (drift.threshold).
+groups:
+  - name: moderaguard-model
+    rules:
+      - alert: ModelDriftDetected
+        expr: moderaguard_drift_share > 0.3
+        for: 0m
+        labels:
+          severity: warning
+          action: retrain
+        annotations:
+          summary: "Input drift: {{ $value | humanizePercentage }} of monitored features drifted"
+          description: "Recent comments differ from the training data. retrain_dag has been requested."
+
+      - alert: DriftCheckStale
+        expr: time() - moderaguard_drift_last_run_timestamp > 1800
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "The drift check has not run for over 30 minutes (check drift_check_dag in Airflow)"
+
+      - alert: CanaryBlocksMuchMore
+        expr: |
+          (
+            sum(rate(moderaguard_verdicts_total{variant="canary", verdict="block"}[10m]))
+            / sum(rate(moderaguard_verdicts_total{variant="canary"}[10m]))
+          ) > 2 * (
+            sum(rate(moderaguard_verdicts_total{variant="stable", verdict="block"}[10m]))
+            / sum(rate(moderaguard_verdicts_total{variant="stable"}[10m]))
+          )
+        for: 10m
+        labels:
+          severity: critical
+          action: rollback
+        annotations:
+          summary: "Canary blocks more than twice as often as stable: consider rolling back"
+
+      - alert: ModeratorDisagreementHigh
+        expr: |
+          sum(rate(moderaguard_feedback_total{agreed="false"}[1h]))
+          / sum(rate(moderaguard_feedback_total[1h])) > 0.3
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "Moderators overrule more than 30% of decisions"
+
+  - name: moderaguard-service
+    rules:
+      - alert: ServiceDown
+        expr: up{job="moderaguard-services"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.app }} is not responding"
+
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, service) (rate(moderaguard_latency_seconds_bucket{endpoint=~"/moderate|/predict"}[5m]))
+          ) > 0.5
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "p95 latency of {{ $labels.service }} is {{ $value | humanizeDuration }}"
+
+      - alert: HighErrorRate
+        expr: |
+          sum by (service) (rate(moderaguard_requests_total{status=~"5.."}[5m]))
+          / sum by (service) (rate(moderaguard_requests_total[5m])) > 0.05
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "More than 5% of {{ $labels.service }} requests fail"
+
+  - name: moderaguard-infrastructure
+    rules:
+      - alert: DatabaseDown
+        expr: pg_up == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "Postgres is unreachable: predictions and feedback are not being stored"
+
+      - alert: DiskAlmostFull
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/", fstype!~"tmpfs|overlay"}
+           / node_filesystem_size_bytes{mountpoint="/", fstype!~"tmpfs|overlay"}) < 0.10
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Less than 10% disk left on {{ $labels.instance }}"

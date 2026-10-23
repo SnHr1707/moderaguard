@@ -1,0 +1,30 @@
+# Monitoring for the cloud cluster (owner: M7). The rules, Alertmanager config and
+# dashboards are the same files the Compose stack uses (../../monitoring), so build with:
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone k8s/monitoring | kubectl apply -f -
+# (`make k8s-monitoring` does this.)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+resources:
+  - namespace.yaml
+  - monitoring.yaml
+configMapGenerator:
+  - name: prometheus-config
+    files: [prometheus.yml]
+  - name: prometheus-alerts
+    files: [alerts.yml=../../monitoring/prometheus/alerts.yml]
+  - name: alertmanager-config
+    files: [alertmanager.yml=../../monitoring/alertmanager/alertmanager.yml]
+  - name: grafana-datasources
+    files: [prometheus.yml=../../monitoring/grafana/provisioning/datasources/prometheus.yml]
+  - name: grafana-dashboard-provider
+    files: [moderaguard.yml=../../monitoring/grafana/provisioning/dashboards/moderaguard.yml]
+  - name: grafana-dashboards
+    files:
+      - ../../monitoring/grafana/dashboards/service-health.json
+      - ../../monitoring/grafana/dashboards/models-canary-drift.json
+      - ../../monitoring/grafana/dashboards/server-database.json
+  - name: monitoring-platform
+    envs: [platform.env]
+images:
+  - {name: moderaguard/alert-bridge, newTag: local}
